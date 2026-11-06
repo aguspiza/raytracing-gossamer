@@ -1,0 +1,88 @@
+// 3D vectors, used for points, directions and colours.
+
+pub (package) struct Vec3 { pub (package) x: f32, pub (package) y: f32, pub (package) z: f32 }
+
+pub (package) const ZERO: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 0.0 }
+pub (package) const ONE: Vec3 = Vec3 { x: 1.0, y: 1.0, z: 1.0 }
+
+impl Add for Vec3 {
+    type Output = Vec3
+    fn add(self, o: Vec3) -> Vec3 { Vec3 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z } }
+}
+
+impl Sub for Vec3 {
+    type Output = Vec3
+    fn sub(self, o: Vec3) -> Vec3 { Vec3 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z } }
+}
+
+// Component-wise: a colour times an albedo.
+impl Mul for Vec3 {
+    type Output = Vec3
+    fn mul(self, o: Vec3) -> Vec3 { Vec3 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z } }
+}
+
+impl Mul<f32> for Vec3 {
+    type Output = Vec3
+    fn mul(self, k: f32) -> Vec3 { Vec3 { x: self.x * k, y: self.y * k, z: self.z * k } }
+}
+
+impl Div<f32> for Vec3 {
+    type Output = Vec3
+    fn div(self, k: f32) -> Vec3 { Vec3 { x: self.x / k, y: self.y / k, z: self.z / k } }
+}
+
+impl Neg for Vec3 {
+    type Output = Vec3
+    fn neg(self) -> Vec3 { Vec3 { x: -self.x, y: -self.y, z: -self.z } }
+}
+
+impl Vec3 {
+    pub (package) fn dot(self, o: Vec3) -> f32 { self.x * o.x + self.y * o.y + self.z * o.z }
+
+    pub (package) fn cross(self, o: Vec3) -> Vec3 {
+        Vec3 {
+            x: self.y * o.z - self.z * o.y
+            y: self.z * o.x - self.x * o.z
+            z: self.x * o.y - self.y * o.x
+        }
+    }
+
+    pub (package) fn sqlen(self) -> f32 { self.dot(self) }
+
+    pub (package) fn len(self) -> f32 { self.sqlen().sqrt() }
+
+    // The small epsilon keeps a zero vector from dividing by zero.
+    pub (package) fn normalize(self) -> Vec3 { self * (1.0 / (self.len() + 0.0001)) }
+
+    pub (package) fn sqrt(self) -> Vec3 { Vec3 { x: self.x.sqrt(), y: self.y.sqrt(), z: self.z.sqrt() } }
+
+    pub (package) fn reflect(self, n: Vec3) -> Vec3 { self - n * (self.dot(n) * 2.0) }
+
+    pub (package) fn refract(self, n: Vec3, ni_over_nt: f32) -> Option<Vec3> {
+        let v = self.normalize()
+        let dt = v.dot(n)
+        let disc = 1.0 - ni_over_nt * ni_over_nt * (1.0 - dt * dt)
+        if disc > 0.0 { Some((v - n * dt) * ni_over_nt - n * disc.sqrt()) } else { None }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Vec3
+
+    #[test]
+    fn dot_and_cross() {
+        let v = Vec3 { x: 0.0, y: 1.0, z: 2.0 }
+        assert_eq(v.dot(v), 5.0)
+        assert_eq(v.cross(v), super::ZERO)
+        let x = Vec3 { x: 1.0, y: 0.0, z: 0.0 }
+        let y = Vec3 { x: 0.0, y: 1.0, z: 0.0 }
+        assert_eq(x.cross(y), Vec3 { x: 0.0, y: 0.0, z: 1.0 })
+    }
+
+    #[test]
+    fn operators() {
+        assert_eq(-super::ONE, Vec3 { x: -1.0, y: -1.0, z: -1.0 })
+        assert_eq(super::ONE * 2.0 - super::ONE, super::ONE)
+    }
+}

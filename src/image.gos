@@ -1,0 +1,59 @@
+// Image encoders: TGA (binary) and PPM (P3, text). Pixels are row-major from the top left.
+
+pub (package) struct Rgb { pub (package) r: u8, pub (package) g: u8, pub (package) b: u8 }
+
+pub (package) const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 }
+
+pub (package) fn tga(width: i64, height: i64, pixels: [Rgb]) -> Vec<u8> {
+    let mut out = #[0u8; 18]
+    out[2] = 2 // uncompressed true colour
+    out[12] = (width & 255) as u8
+    out[13] = (width >> 8) as u8
+    out[14] = (height & 255) as u8
+    out[15] = (height >> 8) as u8
+    out[16] = 24 // bits per pixel
+    // TGA rows go from the bottom up, and each pixel is BGR.
+    for row in (0..height).rev() {
+        for p in pixels[row * width..(row + 1) * width] {
+            out.push(p.b)
+            out.push(p.g)
+            out.push(p.r)
+        }
+    }
+    out
+}
+
+pub (package) fn ppm(width: i64, height: i64, pixels: [Rgb]) -> String {
+    let mut out = String::with_capacity(pixels.len() * 12 + 20)
+    out += f"P3\n{width} {height}\n255\n"
+    for p in pixels { out += f"{p.r} {p.g} {p.b}\n" }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rgb
+
+    fn sample() -> Vec<Rgb> {
+        #[
+            Rgb { r: 0, g: 0, b: 0 }, Rgb { r: 0, g: 255, b: 255 }
+            Rgb { r: 255, g: 0, b: 255 }, Rgb { r: 255, g: 255, b: 0 }
+        ]
+    }
+
+    #[test]
+    fn tga_is_bottom_up_bgr() {
+        let bytes = super::tga(2, 2, sample())
+        assert_eq(bytes.len(), 18 + 4 * 3)
+        assert_eq(bytes[12], 2)
+        assert_eq(bytes[14], 2)
+        // the first pixel written is the bottom-left one, (255, 0, 255) as BGR
+        assert_eq(bytes[18..21], #[255u8, 0, 255])
+    }
+
+    #[test]
+    fn ppm_header_and_pixels() {
+        let text = super::ppm(2, 2, sample())
+        assert(text.starts_with("P3\n2 2\n255\n0 0 0\n0 255 255\n"))
+    }
+}

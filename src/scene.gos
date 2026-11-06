@@ -1,0 +1,143 @@
+// Rays, materials, spheres and the camera.
+
+use std::math
+use random::Rng
+use vec3::{Vec3, ONE}
+
+pub (package) struct Ray { pub (package) origin: Vec3, pub (package) dir: Vec3 }
+
+impl Ray {
+    pub (package) fn at(self, t: f32) -> Vec3 { self.origin + self.dir * t }
+}
+
+pub (package) enum Material {
+    Lambertian { albedo: Vec3 }
+    Metal { albedo: Vec3, fuzz: f32 }
+    Dielectric { ior: f32 }
+}
+
+pub (package) struct Sphere { pub (package) center: Vec3, pub (package) radius: f32, pub (package) material: Material }
+
+pub (package) struct Hit { pub (package) point: Vec3, pub (package) normal: Vec3, pub (package) t: f32, pub (package) material: Material }
+
+const T_MIN: f32 = 0.01
+
+impl Sphere {
+    // The nearest intersection with t in (T_MIN, t_max).
+    pub (package) fn hit(self, ray: Ray, t_max: f32) -> Option<Hit> {
+        let oc = ray.origin - self.center
+        let a = ray.dir.dot(ray.dir)
+        let b = oc.dot(ray.dir)
+        let c = oc.dot(oc) - self.radius * self.radius
+        let disc = b * b - a * c
+        if disc <= 0.0 { return None }
+        let sq = disc.sqrt()
+        let near = (-b - sq) / a
+        let far = (-b + sq) / a
+        let t = if near > T_MIN && near < t_max { near } else if far > T_MIN && far < t_max { far } else { return None }
+        let point = ray.at(t)
+        Some(Hit { point: point, normal: (point - self.center) / self.radius, t: t, material: self.material })
+    }
+}
+
+pub (package) struct World { pub (package) spheres: Vec<Sphere> }
+
+impl World {
+    // The closest sphere the ray hits.
+    pub (package) fn hit(self, ray: Ray) -> Option<Hit> {
+        let mut best: Option<Hit> = None
+        let mut t_max = f32::MAX
+        for s in self.spheres {
+            if let Some(h) = s.hit(ray, t_max) {
+                t_max = h.t
+                best = Some(h)
+            }
+        }
+        best
+    }
+}
+
+fn schlick(cosine: f32, ior: f32) -> f32 {
+    let r0 = (1.0 - ior) / (1.0 + ior)
+    let r = r0 * r0
+    r + (1.0 - r) * (1.0 - cosine).powi(5)
+}
+
+impl Material {
+    // How much of each colour channel the surface keeps.
+    pub (package) fn attenuation(self) -> Vec3 {
+        match self {
+            Material::Lambertian { albedo } | Material::Metal { albedo, .. } => albedo
+            Material::Dielectric { .. } => ONE
+        }
+    }
+
+    // The bounced ray, or None when the surface absorbs it.
+    pub (package) fn scatter(self, ray: Ray, hit: Hit, rng: &mut Rng) -> Option<Ray> {
+        match self {
+            Material::Lambertian { .. } => {
+                let target = hit.point + hit.normal + rng.in_sphere()
+                Some(Ray { origin: hit.point, dir: target - hit.point })
+            }
+            Material::Metal { fuzz, .. } => {
+                let dir = ray.dir.normalize().reflect(hit.normal) + rng.in_sphere() * fuzz
+                if dir.dot(hit.normal) > 0.0 { Some(Ray { origin: hit.point, dir: dir }) } else { None }
+            }
+            Material::Dielectric { ior } => {
+                let d = ray.dir.dot(hit.normal)
+                let entering = d <= 0.0
+                let normal = if entering { hit.normal } else { -hit.normal }
+                let ni_over_nt = if entering { 1.0 / ior } else { ior }
+                let cosine = if entering { -d / ray.dir.len() } else { d / ray.dir.len() * ior }
+                if let Some(refracted) = ray.dir.refract(normal, ni_over_nt) &&
+                    rng.next() > schlick(cosine, ior) {
+                    return Some(Ray { origin: hit.point, dir: refracted })
+                }
+                Some(Ray { origin: hit.point, dir: ray.dir.reflect(hit.normal) })
+            }
+        }
+    }
+}
+
+pub (package) struct Camera {
+    pub (package) origin: Vec3
+    pub (package) top_left: Vec3
+    pub (package) horizontal: Vec3
+    pub (package) vertical: Vec3
+    pub (package) u: Vec3
+    pub (package) v: Vec3
+    pub (package) lens_radius: f32
+}
+
+impl Camera {
+    pub (package) fn new(look_from: Vec3, look_at: Vec3, vfov_deg: f32 = 20.0, aspect: f32 = 2.0, aperture: f32 = 0.005) -> Camera {
+        let vup = Vec3 { x: 0.0, y: 1.0, z: 0.0 }
+        let dist = look_from - look_at
+        let w = dist.normalize()
+        let u = vup.cross(w).normalize()
+        let v = w.cross(u)
+        let focus = dist.len()
+        let half_h = (vfov_deg * math::PI as f32 / 180.0 / 2.0).tan()
+        let half_w = aspect * half_h
+        Camera {
+            origin: look_from
+            top_left: look_from - u * half_w * focus + v * half_h * focus - w * focus
+            horizontal: u * half_w * focus * 2.0
+            vertical: -v * half_h * focus * 2.0 // rows go top to bottom
+            u: u
+            v: v
+            lens_radius: aperture / 2.0
+        }
+    }
+
+    // A ray through (s, t) of the image, both in [0, 1] from the top left,
+    // starting at a random point of the lens.
+    pub (package) fn ray(self, s: f32, t: f32, rng: &mut Rng) -> Ray {
+        let rd = rng.in_disk() * self.lens_radius
+        let offset = self.u * rd.x + self.v * rd.y
+        Ray {
+            origin: self.origin - offset
+            dir: self.top_left + self.horizontal * s + self.vertical * t - self.origin - offset
+        }
+    }
+}

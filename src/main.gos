@@ -1,0 +1,100 @@
+// Ray Tracing in One Weekend: the book's final scene, rendered on every core.
+//
+//     gos run --native src/main.gos -- --samples 64 --ppm
+
+use std::{env, errors, flag, fs, time}
+use image::{ppm, tga, Rgb, BLACK}
+use random::Rng
+use scene::{Camera, Ray, Sphere, World}
+use scene::Material::{Dielectric, Lambertian, Metal}
+use vec3::{Vec3, ONE, ZERO}
+
+const ROWS: i64 = 600
+const COLS: i64 = 1200
+const MAX_BOUNCES: i64 = 50
+
+fn sky(ray: Ray) -> Vec3 {
+    let t = 0.5 * (ray.dir.normalize().y + 1.0)
+    ONE * (1.0 - t) + Vec3 { x: 0.5, y: 0.7, z: 1.0 } * t
+}
+
+fn color(ray: Ray, world: World, rng: &mut Rng) -> Vec3 {
+    let mut ray = ray
+    let mut light = ONE
+    for _ in 0..MAX_BOUNCES {
+        let Some(hit) = world.hit(ray) else { return light * sky(ray) }
+        light = light * hit.material.attenuation()
+        let Some(next) = hit.material.scatter(ray, hit, rng) else { return ZERO }
+        ray = next
+    }
+    ZERO
+}
+
+fn to_rgb(c: Vec3) -> Rgb {
+    let g = c.sqrt() * 255.99 // gamma 2
+    Rgb { r: g.x as u8, g: g.y as u8, b: g.z as u8 }
+}
+
+// The book's final scene: a big floor, a grid of small random spheres, three big ones.
+fn random_scene() -> World {
+    let mut rng = Rng::seeded(0x2545F491)
+    let mut spheres = #[Sphere {
+        center: Vec3 { x: 0.0, y: -1000.0, z: 0.0 }
+        radius: 1000.0
+        material: Lambertian { albedo: Vec3 { x: 0.5, y: 0.5, z: 0.5 } }
+    }]
+    for a in -11..11 {
+        for b in -11..11 {
+            let choose = rng.next()
+            let mut center = Vec3 { x: a as f32 + 0.9 + rng.next(), y: 0.2, z: b as f32 + 0.9 + rng.next() }
+            if (center - Vec3 { x: 4.0, y: 0.2, z: 0.0 }).len() <= 0.9 { continue }
+            center.y -= 0.2 / 45.0 * center.len() // sink the far ones into the curved floor
+            let material = if choose < 0.8 {
+                Lambertian { albedo: Vec3 { x: rng.next() * rng.next(), y: rng.next() * rng.next(), z: rng.next() * rng.next() } }
+            } else if choose < 0.95 {
+                Metal { albedo: Vec3 { x: rng.next() + 1.0, y: rng.next() + 1.0, z: rng.next() + 1.0 } * 0.5, fuzz: 0.01 }
+            } else {
+                Dielectric { ior: 1.5 }
+            }
+            spheres.push(Sphere { center: center, radius: 0.2, material: material })
+        }
+    }
+    spheres.push(Sphere { center: Vec3 { x: 0.0, y: 1.0, z: 0.0 }, radius: 1.0, material: Dielectric { ior: 1.5 } })
+    spheres.push(Sphere { center: Vec3 { x: -4.0, y: 1.0, z: 0.0 }, radius: 1.0, material: Lambertian { albedo: Vec3 { x: 0.4, y: 0.2, z: 0.1 } } })
+    spheres.push(Sphere { center: Vec3 { x: 4.0, y: 1.0, z: 0.0 }, radius: 1.0, material: Metal { albedo: Vec3 { x: 0.7, y: 0.6, z: 0.5 }, fuzz: 0.01 } })
+    World { spheres: spheres }
+}
+
+// One image row, every pixel with all its samples.
+fn render_row(row: i64, line: &mut [Rgb], camera: Camera, world: World, samples: i64) {
+    let mut rng = Rng::seeded(row as u32)
+    for col in 0..line.len() {
+        let mut sum = ZERO
+        for _ in 0..samples {
+            let s = (col as f32 + rng.next()) / COLS as f32
+            let t = (row as f32 + rng.next()) / ROWS as f32
+            sum = sum + color(camera.ray(s, t, &mut rng), world, &mut rng)
+        }
+        line[col] = to_rgb(sum / samples as f32)
+    }
+}
+
+fn main() -> Result<(), errors::Error> {
+    let mut flags = flag::Set::new("raytracing")
+    let samples_flag = flags.int("samples", 64, "rays per pixel")
+    let ppm_flag = flags.bool("ppm", false, "also write ray.ppm")
+    flags.parse(env::args())?
+    let samples = *samples_flag
+
+    let world = random_scene()
+    let camera = Camera::new(Vec3 { x: -1.0, y: 1.0, z: 18.0 }, Vec3 { x: 0.0, y: 1.0, z: -1.0 })
+
+    let start = time::Instant::now()
+    let mut pixels = #[BLACK; ROWS * COLS]
+    pixels.par_chunks_mut(COLS, |row, line| render_row(row, line, camera, world, samples))
+    println(f"{COLS}x{ROWS}, {samples} samples: {start.elapsed().as_secs_f64():.1} s")
+
+    fs::write("ray.tga", tga(COLS, ROWS, pixels))?
+    if *ppm_flag { fs::write("ray.ppm", ppm(COLS, ROWS, pixels).as_bytes())? }
+    Ok(())
+}
