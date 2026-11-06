@@ -1,10 +1,10 @@
 // Image encoders: TGA (binary) and PPM (P3, text). Pixels are row-major from the top left.
 
-pub(package) struct Rgb { pub(package) r: u8, pub(package) g: u8, pub(package) b: u8 }
+pub (package) struct Rgb { pub (package) r: u8, pub (package) g: u8, pub (package) b: u8 }
 
-pub(package) const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 }
+pub (package) const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 }
 
-pub(package) fn tga(width: i64, height: i64, pixels: [Rgb]) -> Vec<u8> {
+pub (package) fn tga(width: i64, height: i64, pixels: [Rgb]) -> Vec<u8> {
     let mut out = #[0u8; 18]
     out[2] = 2 // uncompressed true colour
     out[12] = (width & 255) as u8
@@ -23,7 +23,7 @@ pub(package) fn tga(width: i64, height: i64, pixels: [Rgb]) -> Vec<u8> {
     out
 }
 
-pub(package) fn ppm(width: i64, height: i64, pixels: [Rgb]) -> String {
+pub (package) fn ppm(width: i64, height: i64, pixels: [Rgb]) -> String {
     let mut out = String::with_capacity(pixels.len() * 12 + 20)
     out += f"P3\n{width} {height}\n255\n"
     for p in pixels { out += f"{p.r} {p.g} {p.b}\n" }

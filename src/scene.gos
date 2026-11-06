@@ -3,34 +3,34 @@
 use seed::Seed
 use vec3::Vec3
 
-pub(package) const MAX_SPHERES: i64 = 512
-pub(package) const FAR: f32 = 1000000000.0
+pub (package) const MAX_SPHERES: i64 = 512
+pub (package) const FAR: f32 = 1_000_000_000.0
 const T_MIN: f32 = 0.01
 
-pub(package) struct Ray { pub(package) origin: Vec3, pub(package) dir: Vec3 }
+pub (package) struct Ray { pub (package) origin: Vec3, pub (package) dir: Vec3 }
 
-pub(package) enum Material {
-    Lambertian { albedo: Vec3 },
-    Metal { albedo: Vec3, fuzz: f32 },
-    Dielectric { ior: f32 },
+pub (package) enum Material {
+    Lambertian { albedo: Vec3 }
+    Metal { albedo: Vec3, fuzz: f32 }
+    Dielectric { ior: f32 }
 }
 
 // The spheres as flat f32 arrays: the hit test reads only cx..r2, in a
 // branch-free pass LLVM can vectorize.
-pub(package) struct Scene {
-    cx: Vec<f32>,
-    cy: Vec<f32>,
-    cz: Vec<f32>,
-    r2: Vec<f32>,
-    radius: Vec<f32>,
-    materials: Vec<Material>,
+pub (package) struct Scene {
+    cx: Vec<f32>
+    cy: Vec<f32>
+    cz: Vec<f32>
+    r2: Vec<f32>
+    radius: Vec<f32>
+    materials: Vec<Material>
 }
 
 impl Scene {
     // The random sphere scene of the book, built as raytracing-bend2 builds it
     // (by prepending): the ground, the kept grid cells from the last to the
     // first, then the three big spheres. Same order, so ties go the same way.
-    pub(package) fn random() -> Scene {
+    pub (package) fn random() -> Scene {
         let mut s = Scene { cx: #[], cy: #[], cz: #[], r2: #[], radius: #[], materials: #[] }
         s.push(Vec3 { x: 0.0, y: -1000.0, z: 0.0 }, 1000.0, Material::Lambertian { albedo: Vec3 { x: 0.5, y: 0.5, z: 0.5 } })
         let tilt: f32 = 0.2
@@ -81,18 +81,18 @@ impl Scene {
         self.materials.push(m)
     }
 
-    pub(package) fn len(&self) -> i64 { self.cx.len() }
+    pub (package) fn len(&self) -> i64 { self.cx.len() }
 
-    pub(package) fn center(&self, i: i64) -> Vec3 { Vec3 { x: self.cx[i], y: self.cy[i], z: self.cz[i] } }
+    pub (package) fn center(&self, i: i64) -> Vec3 { Vec3 { x: self.cx[i], y: self.cy[i], z: self.cz[i] } }
 
-    pub(package) fn radius(&self, i: i64) -> f32 { self.radius[i] }
+    pub (package) fn radius(&self, i: i64) -> f32 { self.radius[i] }
 
-    pub(package) fn material(&self, i: i64) -> Material { self.materials[i] }
+    pub (package) fn material(&self, i: i64) -> Material { self.materials[i] }
 
     // The nearest sphere in (T_MIN, FAR): its index and t. Two passes: the
     // first, with no branches, works out qb and the discriminant of every
     // sphere; the second takes the sqrt only where the discriminant is positive.
-    pub(package) fn hit(&self, r: Ray) -> Option<(i64, f32)> {
+    pub (package) fn hit(&self, r: Ray) -> Option<(i64, f32)> {
         let mut qbs = [0.0f32; MAX_SPHERES]
         let mut discs = [0.0f32; MAX_SPHERES]
         let o = r.origin
@@ -132,18 +132,18 @@ impl Scene {
     }
 }
 
-pub(package) struct Camera {
-    origin: Vec3,
-    corner: Vec3,
-    horizontal: Vec3,
-    vertical: Vec3,
-    u: Vec3,
-    v: Vec3,
-    lens_radius: f32,
+pub (package) struct Camera {
+    origin: Vec3
+    corner: Vec3
+    horizontal: Vec3
+    vertical: Vec3
+    u: Vec3
+    v: Vec3
+    lens_radius: f32
 }
 
 impl Camera {
-    pub(package) fn new(look_from: Vec3, look_at: Vec3, vfov_deg: f32 = 20.0, aspect: f32 = 2.0, aperture: f32 = 0.005) -> Camera {
+    pub (package) fn new(look_from: Vec3, look_at: Vec3, vfov_deg: f32 = 20.0, aspect: f32 = 2.0, aperture: f32 = 0.005) -> Camera {
         let vup = Vec3 { x: 0.0, y: 1.0, z: 0.0 }
         let dist = look_from - look_at
         let w = dist.normalize()
@@ -168,7 +168,7 @@ impl Camera {
 
     // The ray through (s, t) of the image, both from the top left, leaving
     // from point `d` of the lens disk.
-    pub(package) fn ray(&self, s: f32, t: f32, d: Vec3) -> Ray {
+    pub (package) fn ray(&self, s: f32, t: f32, d: Vec3) -> Ray {
         let offset = self.u * (d.x * self.lens_radius) + self.v * (d.y * self.lens_radius)
         let uh = self.horizontal * s
         let vv = self.vertical * t - self.origin - offset

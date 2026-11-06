@@ -8,19 +8,19 @@
 
 use vec3::Vec3
 
-pub(package) struct Seed { state: u32 }
+pub (package) struct Seed { state: u32 }
 
 impl Seed {
-    pub(package) fn hashed(x: u32) -> Seed {
-        let a = (x ^ (x >> 16)) *% 2146121005
-        let b = (a ^ (a >> 15)) *% 2221713035
+    pub (package) fn hashed(x: u32) -> Seed {
+        let a = (x ^ (x >> 16)) *% 2_146_121_005
+        let b = (a ^ (a >> 15)) *% 2_221_713_035
         Seed { state: b ^ (b >> 16) }
     }
 
     // rand(1f) of the scene: the float of state `h + j`.
-    pub(package) fn at(h: u32, j: u32) -> f32 { Seed::hashed(h +% j).unit() }
+    pub (package) fn at(h: u32, j: u32) -> f32 { Seed::hashed(h +% j).unit() }
 
-    pub(package) fn next(self) -> Seed {
+    pub (package) fn next(self) -> Seed {
         let mut s = self.state
         s ^= s <<% 13
         s ^= s >> 17
@@ -28,29 +28,29 @@ impl Seed {
         Seed { state: s }
     }
 
-    pub(package) fn skip(self, n: i64) -> Seed {
+    pub (package) fn skip(self, n: i64) -> Seed {
         let mut s = self
         for _ in 0..n { s = s.next() }
         s
     }
 
     // The float in [0, 1) of this state.
-    pub(package) fn unit(self) -> f32 { (self.state >> 8) as f32 / 16777216.0 }
+    pub (package) fn unit(self) -> f32 { (self.state >> 8) as f32 / 16777216.0 }
 
     // A point in [-1, 1]^3 drawn from this state and the next two.
-    pub(package) fn point3(self) -> Vec3 {
+    pub (package) fn point3(self) -> Vec3 {
         let s1 = self.next()
         Vec3 { x: 2.0 * self.unit() - 1.0, y: 2.0 * s1.unit() - 1.0, z: 2.0 * s1.next().unit() - 1.0 }
     }
 
     // A point in [-1, 1]^2 (z = 0) drawn from this state and the next.
-    pub(package) fn point2(self) -> Vec3 {
+    pub (package) fn point2(self) -> Vec3 {
         Vec3 { x: 2.0 * self.unit() - 1.0, y: 2.0 * self.next().unit() - 1.0, z: 0.0 }
     }
 
     // The state whose point3 is accepted. As in the Nim original, a point is
     // accepted when it lies outside the unit ball; the search gives up after 64 redraws.
-    pub(package) fn in_sphere(self) -> Seed {
+    pub (package) fn in_sphere(self) -> Seed {
         let mut s = self
         for _ in 0..64 {
             let p = s.point3()
@@ -61,7 +61,7 @@ impl Seed {
     }
 
     // Same as in_sphere, for point2.
-    pub(package) fn in_disk(self) -> Seed {
+    pub (package) fn in_disk(self) -> Seed {
         let mut s = self
         for _ in 0..64 {
             let p = s.point2()
