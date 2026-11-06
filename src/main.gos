@@ -1,100 +1,123 @@
 // Ray Tracing in One Weekend: the book's final scene, rendered on every core.
 //
-//     gos run --native src/main.gos -- --samples 64 --ppm
+//     gos build --release
+//     ./target/release/raytracing-gossamer [samples] [ppm]
+//
+// The math, the random numbers and the scene follow raytracing-bend2,
+// raytracing-goose and the Nim `optimized` branch operation by operation, all
+// in f32, so all of them write the same ray.tga.
 
-use std::{env, errors, flag, fs, time}
+use std::{env, errors, fs, time}
 use image::{ppm, tga, Rgb, BLACK}
-use random::Rng
-use scene::{Camera, Ray, Sphere, World}
-use scene::Material::{Dielectric, Lambertian, Metal}
+use scene::{Camera, Material, Ray, Scene}
+use seed::Seed
 use vec3::{Vec3, ONE, ZERO}
 
-const ROWS: i64 = 600
-const COLS: i64 = 1200
-const MAX_BOUNCES: i64 = 50
+const W: i64 = 1200
+const H: i64 = 600
+const BOUNCES: i64 = 49
 
-fn sky(ray: Ray) -> Vec3 {
-    let t = 0.5 * (ray.dir.normalize().y + 1.0)
+fn sky(d: Vec3) -> Vec3 {
+    let t = 0.5 * (d.normalize().y + 1.0)
     ONE * (1.0 - t) + Vec3 { x: 0.5, y: 0.7, z: 1.0 } * t
 }
 
-fn color(ray: Ray, world: World, rng: &mut Rng) -> Vec3 {
+fn schlick(cosine: f32, ior: f32) -> f32 {
+    let r0 = (1.0 - ior) / (1.0 + ior)
+    let r = r0 * r0
+    r + (1.0 - r) * (1.0 - cosine).powf(5.0)
+}
+
+// Up to 49 bounces, then a last hit test, whose hit is black.
+// `s` is left at the generator state after this path.
+fn color(ray: Ray, scene: Scene, s: &mut Seed) -> Vec3 {
     let mut ray = ray
     let mut light = ONE
-    for _ in 0..MAX_BOUNCES {
-        let Some(hit) = world.hit(ray) else { return light * sky(ray) }
-        light = light * hit.material.attenuation()
-        let Some(next) = hit.material.scatter(ray, hit, rng) else { return ZERO }
-        ray = next
-    }
-    ZERO
-}
-
-fn to_rgb(c: Vec3) -> Rgb {
-    let g = c.sqrt() * 255.99 // gamma 2
-    Rgb { r: g.x as u8, g: g.y as u8, b: g.z as u8 }
-}
-
-// The book's final scene: a big floor, a grid of small random spheres, three big ones.
-fn random_scene() -> World {
-    let mut rng = Rng::seeded(0x2545F491)
-    let mut spheres = #[Sphere {
-        center: Vec3 { x: 0.0, y: -1000.0, z: 0.0 }
-        radius: 1000.0
-        material: Lambertian { albedo: Vec3 { x: 0.5, y: 0.5, z: 0.5 } }
-    }]
-    for a in -11..11 {
-        for b in -11..11 {
-            let choose = rng.next()
-            let mut center = Vec3 { x: a as f32 + 0.9 + rng.next(), y: 0.2, z: b as f32 + 0.9 + rng.next() }
-            if (center - Vec3 { x: 4.0, y: 0.2, z: 0.0 }).len() <= 0.9 { continue }
-            center.y -= 0.2 / 45.0 * center.len() // sink the far ones into the curved floor
-            let material = if choose < 0.8 {
-                Lambertian { albedo: Vec3 { x: rng.next() * rng.next(), y: rng.next() * rng.next(), z: rng.next() * rng.next() } }
-            } else if choose < 0.95 {
-                Metal { albedo: Vec3 { x: rng.next() + 1.0, y: rng.next() + 1.0, z: rng.next() + 1.0 } * 0.5, fuzz: 0.01 }
-            } else {
-                Dielectric { ior: 1.5 }
+    for _ in 0..BOUNCES {
+        let Some((i, t)) = scene.hit(ray) else { return light * sky(ray.dir) }
+        let d = ray.dir
+        let p = ray.origin + d * t
+        let normal = (p - scene.center(i)) / scene.radius(i)
+        match scene.material(i) {
+            Material::Lambertian { albedo } => {
+                let c = s.in_sphere()
+                let target = p + normal + c.point3()
+                ray = Ray { origin: p, dir: target - p }
+                light = light * albedo
+                *s = c.skip(3)
             }
-            spheres.push(Sphere { center: center, radius: 0.2, material: material })
+            Material::Metal { albedo, fuzz } => {
+                let c = s.in_sphere()
+                let dir = d.normalize().reflect(normal) + c.point3() * fuzz
+                *s = c.skip(3)
+                if dir.dot(normal) <= 0.0 { return ZERO }
+                ray = Ray { origin: p, dir: dir }
+                light = light * albedo
+            }
+            Material::Dielectric { ior } => {
+                let dn = d.dot(normal)
+                let inside = dn > 0.0
+                let out_normal = if inside { -normal } else { normal }
+                let ni = if inside { ior } else { 1.0 / ior }
+                let cos0 = 0.0 - dn / d.len()
+                let cosine = if inside { 0.0 - cos0 * ior } else { cos0 }
+                let nv = d.normalize()
+                let dt = nv.dot(out_normal)
+                let disc = 1.0 - ni * ni * (1.0 - dt * dt)
+                let through = disc > 0.0 && s.unit() > schlick(cosine, ior)
+                let dir = if through { (nv - out_normal * dt) * ni - out_normal * disc.sqrt() } else { d.reflect(normal) }
+                ray = Ray { origin: p, dir: dir }
+                *s = s.next()
+            }
         }
     }
-    spheres.push(Sphere { center: Vec3 { x: 0.0, y: 1.0, z: 0.0 }, radius: 1.0, material: Dielectric { ior: 1.5 } })
-    spheres.push(Sphere { center: Vec3 { x: -4.0, y: 1.0, z: 0.0 }, radius: 1.0, material: Lambertian { albedo: Vec3 { x: 0.4, y: 0.2, z: 0.1 } } })
-    spheres.push(Sphere { center: Vec3 { x: 4.0, y: 1.0, z: 0.0 }, radius: 1.0, material: Metal { albedo: Vec3 { x: 0.7, y: 0.6, z: 0.5 }, fuzz: 0.01 } })
-    World { spheres: spheres }
+    if scene.hit(ray).is_none() { light * sky(ray.dir) } else { ZERO }
 }
 
-// One image row, every pixel with all its samples.
-fn render_row(row: i64, line: &mut [Rgb], camera: Camera, world: World, samples: i64) {
-    let mut rng = Rng::seeded(row as u32)
-    for col in 0..line.len() {
+// Gamma 2, then the byte; wraps like the C and Nim ports.
+fn to_byte(x: f32) -> u8 { ((255.99 * x.sqrt()) as u32 & 255) as u8 }
+
+// One image row, every pixel with all its samples. Each pixel seeds its own generator.
+fn render_row(y: i64, row: &mut [Rgb], camera: Camera, scene: Scene, samples: i64) {
+    for x in 0..W {
+        let mut s = Seed::hashed((y * W + x + 1) as u32)
         let mut sum = ZERO
         for _ in 0..samples {
-            let s = (col as f32 + rng.next()) / COLS as f32
-            let t = (row as f32 + rng.next()) / ROWS as f32
-            sum = sum + color(camera.ray(s, t, &mut rng), world, &mut rng)
+            let d = s.skip(2).in_disk()
+            let ray = camera.ray((x as f32 + s.unit()) / W as f32, (y as f32 + s.next().unit()) / H as f32, d.point2())
+            s = d.skip(2)
+            sum = sum + color(ray, scene, &mut s)
         }
-        line[col] = to_rgb(sum / samples as f32)
+        let m = sum / samples as f32
+        row[x] = Rgb { r: to_byte(m.x), g: to_byte(m.y), b: to_byte(m.z) }
     }
 }
 
 fn main() -> Result<(), errors::Error> {
-    let mut flags = flag::Set::new("raytracing")
-    let samples_flag = flags.int("samples", 64, "rays per pixel")
-    let ppm_flag = flags.bool("ppm", false, "also write ray.ppm")
-    flags.parse(env::args())?
-    let samples = *samples_flag
+    // [samples] [ppm], as the Nim, Goose and Bend ports take them
+    let mut samples = 64
+    let mut want_ppm = false
+    for a in env::args() {
+        if a == "ppm" {
+            want_ppm = true
+        } else if let Some(n) = a.to_i64() {
+            samples = n.max(1)
+        }
+    }
+    println(f"rendering {W}x{H} at {samples} samples per pixel")
 
-    let world = random_scene()
+    let scene = Scene::random()
     let camera = Camera::new(Vec3 { x: -1.0, y: 1.0, z: 18.0 }, Vec3 { x: 0.0, y: 1.0, z: -1.0 })
-
     let start = time::Instant::now()
-    let mut pixels = #[BLACK; ROWS * COLS]
-    pixels.par_chunks_mut(COLS, |row, line| render_row(row, line, camera, world, samples))
-    println(f"{COLS}x{ROWS}, {samples} samples: {start.elapsed().as_secs_f64():.1} s")
+    let mut pixels = #[BLACK; W * H]
+    pixels.par_chunks_mut(W, |y, row| render_row(y, row, camera, scene, samples))
+    println(f"rendered in {start.elapsed().as_millis()} ms")
 
-    fs::write("ray.tga", tga(COLS, ROWS, pixels))?
-    if *ppm_flag { fs::write("ray.ppm", ppm(COLS, ROWS, pixels).as_bytes())? }
+    fs::write("ray.tga", tga(W, H, pixels))?
+    println("wrote ray.tga")
+    if want_ppm {
+        fs::write("ray.ppm", ppm(W, H, pixels).as_bytes())?
+        println("wrote ray.ppm")
+    }
     Ok(())
 }
